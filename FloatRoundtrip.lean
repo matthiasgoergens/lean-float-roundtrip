@@ -5,3 +5,4 @@ import FloatRoundtrip.ReadsBack
 import FloatRoundtrip.Shortest
 import FloatRoundtrip.Pack
 import FloatRoundtrip.RoundTrip
+import FloatRoundtrip.FastPath
