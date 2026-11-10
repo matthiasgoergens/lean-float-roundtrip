@@ -1,23 +1,30 @@
 # A machine-checked round trip for Lean's `Float` printer
 
-matthiasgoergens/lean4#10 gives `Float.toString` a logical model: the shortest decimal that reads back to the same double, laid out as Python's `repr` does.  This repository proves in Lean, against Lean's own `Float.Model`, that the digits this printer chooses do read back to the same double.
+matthiasgoergens/lean4#10 gives `Float.toString` a logical model: the shortest decimal that reads back to the same double, laid out as Python's `repr` does.  matthiasgoergens/lean4#9 adds `String.toFloat?`, which parses such strings.  This repository proves in Lean, against Lean's own `Float.Model`, that the parser reads every string the printer writes back as the same float.
 
-The main theorem, `FloatRoundtrip.floatOfScientific_printedDigits` in `FloatRoundtrip/FastPath.lean`: for every finite nonzero `x : Float`, reading the printed digits `c` and exponent `q` back with `Float.ofScientific`, and negating if `x` is negative, gives `x`.  `Float.ofScientific` is what Lean uses for float literals and what matthiasgoergens/lean4#9's `String.toFloat?` calls; the theorem covers its fast path (exact doubles multiplied or divided when `c < 2^53` and `|q| ≤ 22`) as well as its exact path through the model.  `#print axioms` shows only `propext`, `Classical.choice` and `Quot.sound`.
+The main theorem, `FloatRoundtrip.toFloat?_modelToString` in `FloatRoundtrip/Text.lean`:
 
-The printer's definitions are copied unchanged from matthiasgoergens/lean4#10 into `FloatRoundtrip/Print.lean`, apart from the namespace.  `Float.Model` in Lean v4.36.0-rc2, which this builds on, is the same as at that PR's base.
+    theorem toFloat?_modelToString (x : Float) (hx : x.isFinite = true) :
+        toFloat? (modelToString x.toModel).toSlice = some x
+
+It covers every finite double: normal and subnormal, positive and negative, and both zeros.  `toFloat?` computes its result with `Float.ofScientific`, the function Lean uses for float literals.  The proof covers its fast path (exact doubles multiplied or divided when the digits are below `2^53` and the exponent is at most 22 in absolute value) as well as its exact path through the model.  `#print axioms` shows only `propext`, `Classical.choice` and `Quot.sound`.
+
+The printer's definitions are copied unchanged from matthiasgoergens/lean4#10 into `FloatRoundtrip/Print.lean`, and the parser's from matthiasgoergens/lean4#9 into `FloatRoundtrip/ToFloat.lean`.  The only changes are the namespace and, in the parser, dropping `private` so that the proofs can name its helpers.  `Float.Model` in Lean v4.36.0-rc2, which this builds on, is the same as at those PRs' base.
 
 ## How the proof goes
 
 - `Round.lean`: the model rounds every result through `roundWithAccuracy`.  If a rational lies within the rounding interval of a canonical float (`Near`), `roundWithAccuracy` returns exactly that float.
 - `Parse.lean`: hence `UnpackedFloat.ofScientific c q` returns the float whenever `c * 10^q` is near it, on both its multiplication and its division path.
 - `ReadsBack.lean`: the printer's own acceptance test `readsBack` decides exactly `Near`.
-- `Shortest.lean`: the printer always returns digits that `readsBack` accepts.  Its exponent estimate is within seven of the decimal exponent in every binade (checked by the kernel), so the correction loop converges within its fuel, and seventeen digits always suffice because `2^53 < 10^16`.
-- `Pack.lean`: `unpack` yields canonical floats, and `pack` and `unpack` invert each other.
-- `RoundTrip.lean`, `FastPath.lean`: the round trip in the model, then for `Float` through `Float.ofScientific`.
+- `Shortest.lean`: the printer always returns digits that `readsBack` accepts.  Its estimate of the decimal exponent is within seven of the true one in every binade (checked by the kernel), so the correction loop converges within its fuel.  Seventeen digits always suffice because `2^53 < 10^16`.
+- `Pack.lean`: `unpack` yields canonical floats, `pack` after `unpack` is the identity, and `unpack` after `pack` is the identity on canonical finite floats and zeros.
+- `RoundTrip.lean`, `FastPath.lean`: the digits and exponent the printer chooses read back through `Float.ofScientific` as the same float (`floatOfScientific_printedDigits`).
+- `TextParse.lean`: what the parser's helpers make of runs of digits, and what it makes of positional (`[-]A.B`) and scientific (`[-]A[.B]e±K`) notation.
+- `Text.lean`: each of the four layouts the printer writes (`d.ddde±XX`, `0.000ddd`, `ddd000.0` and `dd.ddd`) parses back to digits and an exponent with the value the printer chose, and the zeros parse as `0.0` and `-0.0`; with the above, that gives the main theorem.
 
-## Not yet covered
+## Not covered
 
-The text layer: that matthiasgoergens/lean4#9's `String.toFloat?` reads `layoutDecimal`'s output back as the same digits and exponent, and the strings `"0.0"` and `"-0.0"`.  The compiled `Float.toString` calls C++ `std::to_chars`, which #10 keeps as its implementation; that it agrees with the model is tested there, not proved.
+The compiled `Float.toString` calls C++ `std::to_chars`, which #10 keeps as its implementation; that it agrees with the model is tested there, not proved.  `Float32` is not covered.
 
 ## Building
 
