@@ -6,3 +6,6 @@ import FloatRoundtrip.Shortest
 import FloatRoundtrip.Pack
 import FloatRoundtrip.RoundTrip
 import FloatRoundtrip.FastPath
+import FloatRoundtrip.ToFloat
+import FloatRoundtrip.TextParse
+import FloatRoundtrip.Text
