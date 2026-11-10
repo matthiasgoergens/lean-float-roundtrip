@@ -203,4 +203,121 @@ theorem splitAtFirst?_none {s : Slice} {p : Char → Bool}
   rw [h2]
   rfl
 
+theorem splitAtFirst?_none_of {s : Slice} {p : Char → Bool} {L : List Char}
+    (h : s.copy.toList = L) (hL : ∀ x ∈ L, p x = false) : splitAtFirst? s p = none :=
+  splitAtFirst?_none (h ▸ hL)
+
+/-! ## Whole numbers -/
+
+/-- The characters of the sign. -/
+def signChars (neg : Bool) : List Char := if neg then ['-'] else []
+
+theorem head?_ne_of_dig {A X : List Char} {c : Char} (hA : ∀ x ∈ A, IsDig x) (hAne : A ≠ [])
+    (hc : ∀ x, IsDig x → x ≠ c) : (A ++ X).head? ≠ some c := by
+  obtain ⟨a, A', rfl⟩ := List.exists_cons_of_ne_nil hAne
+  simpa using hc a (hA a (by simp))
+
+theorem sign_cases {s : Slice} {neg : Bool} {rest : List Char}
+    (h : s.copy.toList = signChars neg ++ rest) (hr : rest.head? ≠ some '-') :
+    (neg = true ∧ ∃ t, s.dropPrefix? '-' = some t ∧ t.copy.toList = rest) ∨
+    (neg = false ∧ s.dropPrefix? '-' = none ∧ s.copy.toList = rest) := by
+  cases neg
+  · simp only [signChars, Bool.false_eq_true, if_false, List.nil_append] at h
+    exact .inr ⟨rfl, dropPrefix?_none (h ▸ hr), h⟩
+  · simp only [signChars, if_true, List.singleton_append] at h
+    exact .inl ⟨rfl, dropPrefix?_some h⟩
+
+theorem not_e_of_dig {L : List Char} (hL : ∀ x ∈ L, IsDig x ∨ x = '.') :
+    ∀ x ∈ L, (decide (x = 'e') || decide (x = 'E')) = false := by
+  intro x hx
+  rcases hL x hx with h | rfl
+  · simp [h.ne_e, h.ne_E]
+  · decide
+
+theorem not_dot_of_dig {L : List Char} (hL : ∀ x ∈ L, IsDig x) :
+    ∀ x ∈ L, decide (x = '.') = false := by
+  intro x hx
+  simp [(hL x hx).ne_dot]
+
+/-- `decimalParts?` on positional notation `[-]A.B`. -/
+theorem decimalParts?_positional {s : Slice} {neg : Bool} {A B : List Char}
+    (h : s.copy.toList = signChars neg ++ (A ++ '.' :: B))
+    (hA : ∀ c ∈ A, IsDig c) (hB : ∀ c ∈ B, IsDig c) (hAne : A ≠ []) :
+    decimalParts? s = some (neg, digitsVal (A ++ B), -(B.length : ℤ)) := by
+  have hr := head?_ne_of_dig (X := '.' :: B) hA hAne fun x hx => hx.ne_minus
+  unfold decimalParts?
+  rcases sign_cases h hr with ⟨rfl, t, hd, ht⟩ | ⟨rfl, hd, ht⟩ <;> rw [hd] <;> dsimp only
+  all_goals
+    rw [splitAtFirst?_none_of (p := fun c => c = 'e' || c = 'E') ht (not_e_of_dig (by
+      intro x hx
+      simp only [List.mem_append, List.mem_cons] at hx
+      rcases hx with hx | rfl | hx
+      · exact .inl (hA x hx)
+      · exact .inr rfl
+      · exact .inl (hB x hx)))]
+    dsimp only
+    obtain ⟨l, r, hsp, hl, hr⟩ :=
+      splitAtFirst?_some (p := (· = '.')) ht (by simp) (not_dot_of_dig hA)
+    have : 0 < A.length := List.length_pos_of_ne_nil hAne
+    simp [hsp, digitRun?_of_digits hl hA, digitRun?_of_digits hr hB, digitsVal_append, this]
+
+/-- `decimalParts?` on scientific notation `[-]A[.B]e±K`. -/
+theorem decimalParts?_scientific {s : Slice} {neg expNeg dot : Bool} {A B K : List Char}
+    (h : s.copy.toList = signChars neg ++
+      (A ++ ((if dot then '.' :: B else []) ++ 'e' :: (if expNeg then '-' else '+') :: K)))
+    (hA : ∀ c ∈ A, IsDig c) (hB : ∀ c ∈ B, IsDig c) (hK : ∀ c ∈ K, IsDig c)
+    (hAne : A ≠ []) (hKne : K ≠ []) (hdot : dot = false → B = []) :
+    decimalParts? s = some (neg, digitsVal (A ++ B),
+      (if expNeg then -(digitsVal K : ℤ) else digitsVal K) - B.length) := by
+  have hr := head?_ne_of_dig (X := (if dot then '.' :: B else []) ++
+    'e' :: (if expNeg then '-' else '+') :: K) hA hAne fun x hx => hx.ne_minus
+  have hF : ∀ x ∈ A ++ (if dot then '.' :: B else []), IsDig x ∨ x = '.' := by
+    intro x hx
+    simp only [List.mem_append] at hx
+    rcases hx with hx | hx
+    · exact .inl (hA x hx)
+    · cases dot
+      · simp at hx
+      · simp only [if_true, List.mem_cons] at hx
+        rcases hx with rfl | hx
+        · exact .inr rfl
+        · exact .inl (hB x hx)
+  unfold decimalParts?
+  rcases sign_cases h hr with ⟨rfl, t, hd, ht⟩ | ⟨rfl, hd, ht⟩ <;> rw [hd] <;> dsimp only
+  all_goals
+    rw [← List.append_assoc] at ht
+    obtain ⟨l, r, hsp, hl, hr⟩ :=
+      splitAtFirst?_some (p := fun c => c = 'e' || c = 'E') ht (by simp) (not_e_of_dig hF)
+    rw [hsp]
+    dsimp only
+    have hlen : 0 < A.length := List.length_pos_of_ne_nil hAne
+    have hfrac : ∃ ip fp : Slice, ip.copy.toList = A ∧ fp.copy.toList = B ∧
+        ((splitAtFirst? l fun x => decide (x = '.')) = some (ip, fp) ∨
+          ((splitAtFirst? l fun x => decide (x = '.')) = none ∧ ip = l ∧
+            fp = l.sliceFrom l.endPos)) := by
+      cases dot
+      · rw [hdot rfl]
+        simp only [Bool.false_eq_true, if_false, List.append_nil] at hl
+        refine ⟨l, l.sliceFrom l.endPos, hl, ?_,
+          .inr ⟨splitAtFirst?_none_of hl (not_dot_of_dig hA), rfl, rfl⟩⟩
+        rw [Slice.copy_sliceFrom_endPos, String.toList_empty]
+      · simp only [if_true] at hl
+        obtain ⟨ip, fp, hsp', hip, hfp⟩ :=
+          splitAtFirst?_some (p := (· = '.')) hl (by simp) (not_dot_of_dig hA)
+        exact ⟨ip, fp, hip, hfp, .inl hsp'⟩
+    obtain ⟨ip, fp, hip, hfp, hsplit⟩ := hfrac
+    have hdig := digitRun?_of_digits hip hA
+    have hdig' := digitRun?_of_digits hfp hB
+    rcases hsplit with hsplit | ⟨hsplit, rfl, rfl⟩
+    all_goals
+      cases expNeg
+      · simp only [Bool.false_eq_true, if_false] at hr
+        obtain ⟨rest, hrest, hk⟩ := dropPrefix?_some hr
+        rw [dropPrefix?_none (c := '-') (by simp [hr]), hrest]
+        simp [toNat?_of_digits hk hKne hK, hsplit, hdig, hdig', digitsVal_append, hlen]
+      · simp only [if_true] at hr
+        obtain ⟨rest, hrest, hk⟩ := dropPrefix?_some hr
+        rw [hrest]
+        simp [toNat?_of_digits hk hKne hK, hsplit, hdig, hdig', digitsVal_append, hlen]
+
 end FloatRoundtrip
